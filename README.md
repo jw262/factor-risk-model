@@ -61,28 +61,6 @@ $$h^* = \frac{\text{Cov}(r_p, r_e)}{\text{Var}(r_e)} \qquad \text{Var}(r_p - h^*
 
 So the best hedge is simply the ETF with the highest correlation to the book.
 
-## Run it
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python -m pytest      # prove the math
-python main.py        # build the report
-```
-
-Settings (start date, book size) are at the top of `main.py`.
-
-## Website
-
-```bash
-python -m streamlit run app.py
-```
-
-Opens in the browser: type in any holdings and weights, hit **Run analysis**, and get the same three-part report. It runs the exact same code as `main.py` (both call `riskmodel/pipeline.py`).
-
-**Put it online for free** with [Streamlit Community Cloud](https://share.streamlit.io): sign in with GitHub, choose **Create app**, pick this repo, set the main file to `app.py`, and deploy. You get a public link to put on a resume. Data: prices from Yahoo Finance, factors from the [Kenneth French Data Library](https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html).
-
 ## Layout
 
 ```
@@ -99,15 +77,3 @@ riskmodel/
 tests/test_math.py   proves the math with fake data where we know the answer
 ```
 
-## Limitations
-
-- **At 12 stocks, the direct covariance actually works** (78 numbers, ~400 days of data), so realized volatility serves as the benchmark. The factor approach is what scales to a full universe, and it's what explains *why* the risk is there.
-- **Weights are held at today's values** across the whole history ("what would today's book have done").
-- **Everything is in-sample.** Alpha especially: these names were picked partly because they performed well.
-- **French data lags** a month or two, so the factor sections end earlier than the hedge section.
-
-## Next steps
-
-- Fundamental (Barra-style) model: the third classic family, where factor returns are estimated cross-sectionally each day
-- Run the statistical model on a ~120-name semis universe instead of just the holdings
-- Out-of-sample hedge test: fit the hedge ratio on one period, check it on the next
