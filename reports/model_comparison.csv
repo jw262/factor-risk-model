@@ -1,0 +1,4 @@
+,factors,numbers estimated,predicted vol,actual vol,Σ positive definite
+CAPM,1,25,0.43888733297545585,0.6438309917294319,True
+Fama-French,6,105,0.47230108968410867,0.6438309917294319,True
+Statistical,1,25,0.6719541350437107,0.6438309917294319,True
