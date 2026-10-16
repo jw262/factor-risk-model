@@ -1,6 +1,33 @@
+[client]
+toolbarMode = "minimal"
+
 [theme]
 base = "light"
-primaryColor = "#2563EB"
-backgroundColor = "#FBFCFE"
-secondaryBackgroundColor = "#EEF2F8"
-textColor = "#14213D"
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+primaryColor = "#D9534F"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F6F7F9"
+textColor = "#1F2328"
+linkColor = "#B83C38"
+linkUnderline = false
+codeTextColor = "#B83C38"
+codeBackgroundColor = "#F6F7F9"
+borderColor = "#E6E8EC"
+dataframeBorderColor = "#EEF0F3"
+dataframeHeaderBackgroundColor = "#F6F7F9"
+showWidgetBorder = true
+showSidebarBorder = true
+baseRadius = "0.75rem"
+buttonRadius = "full"
+headingFontWeights = [800, 700, 700, 600, 600, 600]
+metricValueFontSize = "1.75rem"
+redColor = "#D9534F"
+redBackgroundColor = "#FCEDEC"
+redTextColor = "#B83C38"
+grayColor = "#8A929C"
+grayBackgroundColor = "#F1F3F5"
+grayTextColor = "#5B6470"
+
+[theme.sidebar]
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F6F7F9"

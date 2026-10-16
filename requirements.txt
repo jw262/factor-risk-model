@@ -6,3 +6,4 @@ requests
 matplotlib
 pytest
 streamlit
+altair

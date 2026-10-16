@@ -93,6 +93,22 @@ def test_risk_shares_add_to_100_percent():
     assert np.isclose(shares.sum(), 1.0)
 
 
+def test_statistical_attribution_adds_up_exactly():
+    # Same two promises for the PCA model: return pieces add up to the book's
+    # return, and risk pieces add up to 100% (PCs are uncorrelated with the leftover).
+    stocks, factors, _ = fake_market_data()
+    weights = pd.Series({"AAA": 0.2, "BBB": 0.3, "CCC": 0.5})
+    excess = stocks.sub(factors["RF"], axis=0)
+    stat = models.statistical_model(stocks)
+
+    pieces = risk.statistical_attribution(weights, stat, excess)
+    assert np.isclose(pieces.sum(), (excess @ weights).mean() * 252)
+
+    shares = risk.statistical_risk_shares(weights, stat, stocks)
+    assert np.isclose(shares.sum(), 1.0)
+    assert np.isclose(shares.drop("Specific").sum(), risk.statistical_r2(weights, stat, stocks))
+
+
 # --- The hedge ----------------------------------------------------------------
 
 def test_hedge_ratio_is_the_lowest_risk_choice():

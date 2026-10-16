@@ -21,6 +21,22 @@ def date_range(series):
     return f"{series.index[0]:%b %d, %Y} to {series.index[-1]:%b %d, %Y}"
 
 
+def score_models(comparison):
+    # Three tests, one point each: explains the most of the book's daily moves (R²),
+    # predicts volatility closest to what actually happened, and leaves the least
+    # correlation behind in the leftovers (a model that missed a factor leaves some).
+    # Most points wins; a tie goes to the higher R².
+    winners = {
+        "Explains the most": comparison["R²"].idxmax(),
+        "Closest risk forecast": (comparison["predicted vol"]
+                                  - comparison["actual vol"]).abs().idxmin(),
+        "Cleanest leftovers": comparison["leftover correlation"].idxmin(),
+    }
+    points = pd.Series(winners).value_counts()
+    best = max(points.index, key=lambda name: (points[name], comparison.loc[name, "R²"]))
+    return winners, best
+
+
 def run_analysis(weights, returns, factors, notional, etfs):
     tickers = list(weights.index)
     stock_returns = returns[tickers]
@@ -42,39 +58,59 @@ def run_analysis(weights, returns, factors, notional, etfs):
     capm = models.capm(stock_excess, factors)
     ff = models.fama_french(stock_excess, factors)
     stat = models.statistical_model(stock_returns.loc[dates])
-    all_models = {"CAPM": capm, "Fama-French": ff, "Statistical": stat}
     realized = risk.realized_vol(stock_returns.loc[dates], weights)
 
-    comparison = {}
-    for name, model in all_models.items():
-        cov = risk.build_covariance(model)  # Σ = B F Bᵀ + D
-        n_factors = model["B"].shape[1]
-        comparison[name] = {
-            "factors": n_factors,
-            "numbers estimated": risk.count_numbers_needed(len(tickers), n_factors)[1],
-            "predicted vol": risk.portfolio_vol(weights, model)["vol"],
-            "actual vol": realized,
-            "Σ positive definite": risk.is_positive_definite(cov),
+    # ---- 1 + 2. Each model's answer to "where do our returns and risk come from?" ----
+    # Regression models: regress the whole book on that model's factors.
+    by_model = {}
+    for name, model, factor_names in [("CAPM", capm, models.CAPM_FACTORS),
+                                      ("Fama-French", ff, models.FAMA_FRENCH_FACTORS)]:
+        fit = risk.portfolio_regression(portfolio_excess, factors, factor_names)
+        by_model[name] = {
+            "r2": fit.rsquared,
+            "book_betas": fit.params[factor_names].rename(models.FACTOR_LABELS),
+            "factor_returns": (factors.loc[portfolio_excess.index, factor_names].mean()
+                               * risk.DAYS_PER_YEAR).rename(models.FACTOR_LABELS),
+            "attribution": risk.return_attribution(portfolio_excess, factors, factor_names),
+            "risk_shares": risk.factor_risk_shares(portfolio_excess, factors, factor_names),
+            "stock_betas": model["B"].rename(columns=models.FACTOR_LABELS),
+            "stock_stats": model["stats"],
         }
-    comparison = pd.DataFrame(comparison).T.infer_objects()  # give each column a proper type
+    # Statistical model: split the book into its principal components
+    stat_returns = stock_excess[stat["B"].index].dropna() @ stat["B"]
+    by_model["Statistical"] = {
+        "r2": risk.statistical_r2(weights, stat, stock_returns.loc[dates]),
+        "book_betas": stat["B"].T @ weights[stat["B"].index],
+        "factor_returns": stat_returns.mean() * risk.DAYS_PER_YEAR,
+        "attribution": risk.statistical_attribution(weights, stat, stock_excess),
+        "risk_shares": risk.statistical_risk_shares(weights, stat, stock_returns.loc[dates]),
+        "stock_betas": stat["B"],
+        "stock_stats": None,
+    }
 
-    # ---- 1. Where are our returns coming from? ----
-    capm_fit = risk.portfolio_regression(portfolio_excess, factors, models.CAPM_FACTORS)
-    model_r2 = pd.Series({
-        "CAPM": capm_fit.rsquared,
-        "Fama-French": risk.portfolio_regression(portfolio_excess, factors,
-                                                 models.FAMA_FRENCH_FACTORS).rsquared,
-        "Statistical": risk.statistical_r2(weights, stat, stock_returns.loc[dates]),
-    })
-    attribution = risk.return_attribution(portfolio_excess, factors,
-                                          models.FAMA_FRENCH_FACTORS)
+    # Then grade all three with the same yardsticks, using each one's Σ = B F Bᵀ + D
+    for name, model in [("CAPM", capm), ("Fama-French", ff), ("Statistical", stat)]:
+        cov = risk.build_covariance(model)
+        n_factors = model["B"].shape[1]
+        by_model[name].update({
+            "n_factors": n_factors,
+            "numbers_estimated": risk.count_numbers_needed(len(tickers), n_factors)[1],
+            "positive_definite": risk.is_positive_definite(cov),
+            "predicted_vol": risk.portfolio_vol(weights, model)["vol"],
+            "leftover_correlation": risk.average_residual_correlation(model["residuals"]),
+            "positions": risk.position_risk(weights, cov),
+        })
 
-    # ---- 2. Where is our risk coming from? ----
-    factor_shares = risk.factor_risk_shares(portfolio_excess, factors,
-                                            models.FAMA_FRENCH_FACTORS)
-    # Position risk uses the statistical model's Σ: it's the one that picks up
-    # sector factors that Fama-French doesn't have.
-    positions = risk.position_risk(weights, risk.build_covariance(stat))
+    comparison = pd.DataFrame({name: {
+        "factors": m["n_factors"],
+        "numbers estimated": m["numbers_estimated"],
+        "R²": m["r2"],
+        "predicted vol": m["predicted_vol"],
+        "actual vol": realized,
+        "leftover correlation": m["leftover_correlation"],
+        "Σ positive definite": m["positive_definite"],
+    } for name, m in by_model.items()}).T.infer_objects()  # give each column a proper type
+    winners, best_model = score_models(comparison)
 
     # ---- 3. Which ETF tracks us best? ----
     etf_returns = returns[list(etfs)].loc[portfolio.index]
@@ -87,19 +123,24 @@ def run_analysis(weights, returns, factors, notional, etfs):
     return {
         "weights": weights,
         "n_stocks": len(tickers),
+        "by_model": by_model,
         "comparison": comparison,
-        "leftover_correlation": {name: risk.average_residual_correlation(m["residuals"])
-                                 for name, m in [("CAPM", capm), ("Fama-French", ff)]},
+        "winners": winners,
+        "best_model": best_model,
+        "leftover_correlation": comparison["leftover correlation"].to_dict(),
         "n_stat_factors": stat["n_factors"],
-        "model_r2": model_r2,
-        "attribution": attribution,
-        "stock_betas": ff["B"].rename(columns=models.FACTOR_LABELS),
-        "stock_stats": ff["stats"],
-        "factor_shares": factor_shares,
+        "model_r2": comparison["R²"],
+        # The terminal report's headline answers use Fama-French for returns and factor
+        # risk, and the statistical model's Σ for positions (it picks up sector factors
+        # that Fama-French doesn't have).
+        "attribution": by_model["Fama-French"]["attribution"],
+        "stock_betas": by_model["Fama-French"]["stock_betas"],
+        "stock_stats": by_model["Fama-French"]["stock_stats"],
+        "factor_shares": by_model["Fama-French"]["risk_shares"],
+        "positions": by_model["Statistical"]["positions"],
         "pca": models.pca_summary(stock_returns.loc[dates]),
-        "positions": positions,
         "realized_vol": realized,
-        "market_beta": capm_fit.params["Mkt-RF"],  # the whole book's CAPM beta
+        "market_beta": by_model["CAPM"]["book_betas"]["Market"],  # the whole book's CAPM beta
         "portfolio": portfolio,
         "etf_returns": etf_returns,
         "ranking": ranking,
@@ -110,6 +151,7 @@ def run_analysis(weights, returns, factors, notional, etfs):
         "beta_before": hedge.beta(portfolio, spy),
         "beta_after": hedge.beta(hedged, spy),
         "vol_after": hedged.std() * risk.DAYS_PER_YEAR ** 0.5,
+        "factor_dates": (portfolio_excess.index[0], portfolio_excess.index[-1]),
         "factor_window": "Factor models: " + date_range(portfolio_excess),
         "hedge_window": "Hedge analysis: " + date_range(portfolio),
     }

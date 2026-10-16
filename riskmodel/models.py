@@ -123,7 +123,10 @@ def statistical_model(stock_returns, n_factors=None):
     covered = np.diag(B.values @ F.values @ B.values.T)
     D = pd.Series(np.diag(S) - covered, index=S.index).clip(lower=1e-12)
 
-    return {"B": B, "F": F, "D": D, "n_factors": n_factors}
+    # Leftovers: each day's returns minus the part the top K factors explain
+    residuals = returns - returns @ B @ B.T
+
+    return {"B": B, "F": F, "D": D, "n_factors": n_factors, "residuals": residuals}
 
 
 def pca_summary(stock_returns):

@@ -56,12 +56,14 @@ def main():
 
     section("THE THREE MODELS")
     table = r["comparison"].copy()
-    for column in ["predicted vol", "actual vol"]:
+    for column in ["R²", "predicted vol", "actual vol"]:
         table[column] = table[column].map("{:.1%}".format)
-    print(table.to_string())
-    for name, value in r["leftover_correlation"].items():
-        print(f"{name}: average correlation of leftovers = {value:.2f} (model assumes 0)")
+    print(table.to_string(float_format="{:.2f}".format))
+    print("(leftover correlation: the models assume 0; anything else means a missed factor)")
     print(f"Statistical: kept {r['n_stat_factors']} factor(s) above the noise line")
+    for test, name in r["winners"].items():
+        print(f"{test}: {name}")
+    print(f"-> Best overall: {r['best_model']}")
 
     section("1. WHERE ARE OUR RETURNS COMING FROM?")
     print(f"Book's market beta (CAPM): {r['market_beta']:.2f}\n")

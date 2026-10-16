@@ -45,6 +45,8 @@ So every eigenvalue is positive and the matrix can always be inverted. Both clai
 
 All three produce $B$, $F$, $D$, so the same risk code runs on every one of them.
 
+**Which one wins?** Each model gets graded on three tests, one point each: highest R² (explains the most of the book's daily moves), predicted volatility closest to what actually happened, and the least correlation left between the stocks' leftovers (a model that missed a factor leaves some behind). Most points wins; a tie goes to the higher R². The statistical model has a home advantage: its factors are built from the book's own stocks.
+
 ## What the report shows
 
 ![Returns](reports/1_returns.png)
@@ -66,6 +68,10 @@ So the best hedge is simply the ETF with the highest correlation to the book.
 ```
 main.py              terminal version: prints the story, saves charts to reports/
 app.py               website version: anyone can enter holdings and run it
+webapp/
+  views.py           the website's pages, one per tab
+  charts.py          the website's interactive charts
+  ui.py              colors, layout, and styling
 MATH.md              proofs of every formula used
 riskmodel/
   pipeline.py        runs everything; main.py and app.py both call it
@@ -73,7 +79,7 @@ riskmodel/
   models.py          CAPM, Fama-French, statistical model (each returns B, F, D)
   risk.py            Σ = BFBᵀ + D, positive-definite check, attribution
   hedge.py           hedge ratio and ETF ranking
-  charts.py          the three charts
+  charts.py          the three report charts (terminal version)
 tests/test_math.py   proves the math with fake data where we know the answer
 ```
 

@@ -75,9 +75,10 @@ def realized_vol(stock_returns, weights):
 def average_residual_correlation(residuals):
     # Factor models assume leftovers don't move together (correlation = 0).
     # If they do, the model is missing a factor. For a semis book, it's probably the sector.
+    # We average the SIZE of each correlation: +0.3 and -0.3 shouldn't cancel out to "clean".
     corr = residuals.corr().values
     off_diagonal = corr[~np.eye(len(corr), dtype=bool)]
-    return np.nanmean(off_diagonal)
+    return np.nanmean(np.abs(off_diagonal))
 
 
 def position_risk(weights, cov):
@@ -128,3 +129,32 @@ def statistical_r2(weights, stat_model, stock_returns):
     w = weights[S.index]
     b = stat_model["B"].T @ w
     return (b @ stat_model["F"] @ b) / (w @ S @ w)
+
+
+def statistical_attribution(weights, stat_model, stock_excess):
+    # The PCA version of return attribution. Each factor is a portfolio (its eigenvector),
+    # so its daily return is f = Bᵀr. The book splits into  r_p = bᵀf + leftover  with b = Bᵀw.
+    # Averaging both sides: the pieces add up exactly to the book's average return.
+    B = stat_model["B"]
+    returns = stock_excess[B.index].dropna()
+    w = weights[B.index]
+    b = B.T @ w
+    f = returns @ B
+    contributions = b * f.mean() * DAYS_PER_YEAR
+    contributions["Alpha"] = (returns @ w - f @ b).mean() * DAYS_PER_YEAR
+    return contributions
+
+
+def statistical_risk_shares(weights, stat_model, stock_returns):
+    # The PCA version of risk attribution: Var(book) = Σ b_k² λ_k + Var(leftover).
+    # The PCs are uncorrelated with each other and with the leftover, so the pieces add
+    # up to 100%, and the factor pieces together equal statistical_r2.
+    B = stat_model["B"]
+    returns = stock_returns[B.index].dropna()
+    w = weights[B.index]
+    b = B.T @ w
+    total = (returns @ w).var()
+    eigenvalues = pd.Series(np.diag(stat_model["F"]), index=b.index)
+    shares = b ** 2 * eigenvalues / total
+    shares["Specific"] = (returns @ w - returns @ B @ b).var() / total
+    return shares
