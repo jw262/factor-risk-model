@@ -19,7 +19,8 @@ from riskmodel import data, hedge, pipeline, risk
 # ---- Settings: change these ----
 PORTFOLIO_FILE = "portfolio.csv"
 START_DATE = "2023-01-01"
-NOTIONAL = 17_800  # $ size of the book, used to size the hedge
+NOTIONAL = 17_800  # $ invested (not counting cash), used to size the hedge
+HEDGE_PCT = 0.50   # short this share of the invested $ in the hedge ETF (0.5 = 50% hedged)
 OUTPUT = Path("reports")
 
 
@@ -45,7 +46,8 @@ def main():
     factors = data.load_factors()
 
     # ---- Step 2: Run everything ----
-    r = pipeline.run_analysis(weights, returns, factors, NOTIONAL, hedge.CANDIDATE_ETFS)
+    r = pipeline.run_analysis(weights, returns, factors, NOTIONAL, hedge.CANDIDATE_ETFS,
+                              HEDGE_PCT)
 
     # ---- Step 3: Print the story ----
     section("WHY FACTOR MODELS")
@@ -90,8 +92,9 @@ def main():
     for column in ["R²", "vol before", "vol after"]:
         ranking[column] = ranking[column].map("{:.0%}".format)
     print(ranking.to_string(float_format="{:.2f}".format))
-    print(f"\nBest match: {r['best_hedge']}. Short {r['hedge_ratio']:.2f}x = "
-          f"${r['short_dollars']:,.0f} against our ${NOTIONAL:,.0f}")
+    print(f"\nBest match: {r['best_hedge']}. {HEDGE_PCT:.0%} hedged = short "
+          f"${r['short_dollars']:,.0f} against our ${NOTIONAL:,.0f} invested")
+    print(f"(The short that would cancel the most risk is {r['hedge_ratio']:.0%} hedged.)")
     print(f"Beta to SPY: {r['beta_before']:.2f} before -> {r['beta_after']:.2f} after")
 
     # ---- Step 4: Save charts and tables ----

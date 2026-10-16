@@ -201,7 +201,7 @@ def growth(returns):
     return (1 + returns).cumprod()
 
 
-def hedge_chart(portfolio, etf_returns, ranking, notional, subtitle, path=None):
+def hedge_chart(portfolio, etf_returns, ranking, notional, hedge_pct, subtitle, path=None):
     fig, ax = plt.subplot_mosaic([["main", "main"], ["monthly", "ranking"],
                                   ["correlation", "hedged"]],
                                  figsize=(15, 15), height_ratios=[1.3, 1, 1],
@@ -266,12 +266,12 @@ def hedge_chart(portfolio, etf_returns, ranking, notional, subtitle, path=None):
 
     # (e) What's left after the hedge
     a = ax["hedged"]
-    hedged = portfolio - h[best] * etf_returns[best]
+    hedged = portfolio - hedge_pct * etf_returns[best]
     vol_before = portfolio.std() * np.sqrt(252)
     vol_after = hedged.std() * np.sqrt(252)
     a.plot(growth(portfolio), color=GREY, lw=1.5, label="Unhedged")
     a.plot(growth(hedged), color=GREEN, lw=2,
-           label=f"Hedged: short ${h[best] * notional:,.0f} of {best}")
+           label=f"Hedged {hedge_pct:.0%}: short ${hedge_pct * notional:,.0f} of {best}")
     a.axhline(1, color="black", lw=0.6)
     a.set_title(f"What's left after the hedge: volatility {vol_before:.0%} → {vol_after:.0%}")
     a.legend(frameon=False)

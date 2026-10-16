@@ -37,7 +37,9 @@ def score_models(comparison):
     return winners, best
 
 
-def run_analysis(weights, returns, factors, notional, etfs):
+def run_analysis(weights, returns, factors, notional, etfs, hedge_pct=1.0):
+    # notional = invested capital in $. hedge_pct = how much of it to short in the hedge
+    # ETF: 0.5 means short $0.50 of the ETF for every $1 invested.
     tickers = list(weights.index)
     stock_returns = returns[tickers]
 
@@ -116,8 +118,8 @@ def run_analysis(weights, returns, factors, notional, etfs):
     etf_returns = returns[list(etfs)].loc[portfolio.index]
     ranking = hedge.rank_hedges(portfolio, etf_returns)
     best = ranking.index[0]
-    h = ranking.loc[best, "hedge ratio"]
-    hedged = portfolio - h * etf_returns[best]
+    h = ranking.loc[best, "hedge ratio"]  # the short that would cancel the most risk
+    hedged = portfolio - hedge_pct * etf_returns[best]  # the short we actually put on
     spy = returns["SPY"].loc[portfolio.index]
 
     return {
@@ -146,8 +148,9 @@ def run_analysis(weights, returns, factors, notional, etfs):
         "ranking": ranking,
         "best_hedge": best,
         "hedge_ratio": h,
+        "hedge_pct": hedge_pct,
         "notional": notional,
-        "short_dollars": h * notional,
+        "short_dollars": hedge_pct * notional,
         "beta_before": hedge.beta(portfolio, spy),
         "beta_after": hedge.beta(hedged, spy),
         "vol_after": hedged.std() * risk.DAYS_PER_YEAR ** 0.5,
@@ -170,5 +173,6 @@ def make_charts(results, folder=None):
                                   r["comparison"]["predicted vol"].astype(float),
                                   r["realized_vol"], r["factor_window"], path("2_risk.png")),
         "hedge": charts.hedge_chart(r["portfolio"], r["etf_returns"], r["ranking"],
-                                    r["notional"], r["hedge_window"], path("3_hedge.png")),
+                                    r["notional"], r["hedge_pct"], r["hedge_window"],
+                                    path("3_hedge.png")),
     }

@@ -26,7 +26,7 @@ BLANK_ROWS = 8
 # A made-up book so first-time visitors can see the site work in one click
 EXAMPLE = pd.DataFrame({
     "ticker": ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "JPM", "XOM"],
-    "weight": [15.0, 15.0, 15.0, 12.0, 12.0, 11.0, 10.0, 10.0],
+    "shares": [40.0, 20.0, 60.0, 40.0, 40.0, 12.0, 25.0, 60.0],
 })
 
 MODELS = {
@@ -104,7 +104,8 @@ def header(title, subtitle):
     tag = None
     if r is not None:
         start, end = r["factor_dates"]
-        tag = f"{r['n_stocks']} holdings · {start:%b %Y} – {end:%b %Y}"
+        tag = (f"{r['n_stocks']} holdings · {ui.money(r['notional'])} invested · "
+               f"{start:%b %Y} – {end:%b %Y}")
     ui.page_header(title, subtitle, tag)
 
 
@@ -126,8 +127,8 @@ def require_results():
 # ---------------------------------------------------------------------------
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def get_returns(tickers, start_date):
-    return data.to_returns(data.load_prices(list(tickers), start_date))
+def get_prices(tickers, start_date):
+    return data.load_prices(list(tickers), start_date)
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
@@ -137,15 +138,15 @@ def get_factors():
 
 def blank_holdings():
     return pd.DataFrame({"ticker": pd.Series([None] * BLANK_ROWS, dtype="object"),
-                         "weight": pd.Series([None] * BLANK_ROWS, dtype="float")})
+                         "shares": pd.Series([None] * BLANK_ROWS, dtype="float")})
 
 
 def clean_holdings(table):
     # Tidy up whatever got typed in: uppercase tickers, skip blank rows, merge duplicates
-    table = table.dropna(subset=["ticker", "weight"]).copy()
+    table = table.dropna(subset=["ticker", "shares"]).copy()
     table["ticker"] = table["ticker"].astype(str).str.strip().str.upper()
     table = table[table["ticker"] != ""]
-    return table.groupby("ticker")["weight"].sum()
+    return table.groupby("ticker")["shares"].sum()
 
 
 def reset_holdings(table):
@@ -178,8 +179,9 @@ def portfolio():
     left, right = st.columns([3, 2], gap="large")
     with left, ui.card("holdings"):
         ui.card_header("Step 1", "Your holdings",
-                       "One row per stock. Weights can be percentages, decimals or dollar "
-                       "amounts; they get scaled to add up to 100%.")
+                       "One row per stock: the ticker and how many shares you own. Your "
+                       "invested capital and each stock's weight get worked out from "
+                       "today's prices.")
         # The table forgets its edits when you switch tabs, so we keep a copy and start
         # from that copy whenever the table is drawn fresh.
         key = f"holdings_{st.session_state.holdings_version}"
@@ -190,8 +192,8 @@ def portfolio():
             width="stretch", placeholder="",
             column_config={
                 "ticker": st.column_config.TextColumn("Ticker", help="e.g. AAPL"),
-                "weight": st.column_config.NumberColumn("Weight", min_value=0.0,
-                                                        format="%.2f"),
+                "shares": st.column_config.NumberColumn("Shares", min_value=0.0,
+                                                        format="localized"),
             })
         st.session_state.holdings_saved = edited.reset_index(drop=True)
         with st.container(horizontal=True):
@@ -206,9 +208,16 @@ def portfolio():
         start = st.date_input("History starts", value=date(2023, 1, 1),
                               min_value=date(2005, 1, 1), max_value=date.today(),
                               key="start", persist_state="session")
-        notional = st.number_input("Book size ($)", min_value=1_000, value=100_000,
-                                   step=1_000, key="notional", persist_state="session",
-                                   help="Used to turn the hedge ratio into dollars to short.")
+        hedge_pct = st.slider(
+            "Hedge (% of invested capital)", min_value=0, max_value=100, value=50, step=5,
+            format="%d%%", key="hedge_pct", persist_state="session",
+            help="How much of your invested capital (shares × today's price, not counting "
+                 "cash) to short in the hedge ETF. 50% on $20,000 invested = short $10,000.")
+        if "results" in st.session_state:
+            invested = st.session_state.results["notional"]
+            st.caption(f"{hedge_pct}% of your {ui.money(invested)} invested = short "
+                       f"{ui.money(hedge_pct / 100 * invested)} of the hedge ETF."
+                       .replace("$", "\\$"))
         etfs = st.multiselect("Hedge candidates", options=hedge.CANDIDATE_ETFS,
                               default=hedge.CANDIDATE_ETFS, key="etfs",
                               persist_state="session")
@@ -217,19 +226,33 @@ def portfolio():
         run = st.button("Run analysis", type="primary", width="stretch",
                         icon=":material/play_arrow:")
 
+    if "book" in st.session_state and "results" in st.session_state:
+        book, r = st.session_state.book, st.session_state.results
+        with ui.card("book"):
+            ui.card_header("Last run", "Your book at today's prices",
+                           f"{ui.money(r['notional'])} invested across {len(book)} stocks. "
+                           f"{ui.pct(r['hedge_pct'])} hedged = short "
+                           f"{ui.money(r['short_dollars'])} of {r['best_hedge']}, the ETF "
+                           "that tracks you best.")
+            st.dataframe(book, column_config={
+                "shares": st.column_config.NumberColumn("Shares", format="localized"),
+                "price": st.column_config.NumberColumn("Price", format="dollar"),
+                "value": st.column_config.NumberColumn("Value", format="dollar"),
+                "weight": st.column_config.NumberColumn("Weight", format="percent")})
+
     if run:
-        analyze(st.session_state.holdings_saved, start, notional, etfs, extra)
+        analyze(st.session_state.holdings_saved, start, hedge_pct / 100, etfs, extra)
         st.switch_page(pages()["overview"])
 
 
-def analyze(holdings, start, notional, etfs, extra):
-    weights = clean_holdings(holdings)
-    if len(weights) < 2:
+def analyze(holdings, start, hedge_pct, etfs, extra):
+    shares = clean_holdings(holdings)
+    if len(shares) < 2:
         stop_with("Add at least 2 stocks to run the models.")
-    if len(weights) > MAX_STOCKS:
+    if len(shares) > MAX_STOCKS:
         stop_with(f"Keep it to {MAX_STOCKS} stocks or fewer.")
-    if (weights <= 0).any():
-        stop_with("Every weight needs to be above 0. Shorts aren't supported yet.")
+    if (shares <= 0).any():
+        stop_with("Every share count needs to be above 0. Shorts aren't supported yet.")
 
     etf_list = list(etfs) + [e.strip().upper() for e in extra.split(",") if e.strip()]
     etf_list = list(dict.fromkeys(etf_list))
@@ -239,32 +262,45 @@ def analyze(holdings, start, notional, etfs, extra):
     notes = []
     with st.spinner("Downloading prices and running the models..."):
         try:
-            tickers = pipeline.tickers_to_download(weights, etf_list)
-            returns = get_returns(tuple(tickers), start.isoformat())
+            tickers = pipeline.tickers_to_download(shares, etf_list)
+            prices = get_prices(tuple(tickers), start.isoformat())
+            returns = data.to_returns(prices)
             factors = get_factors()
         except Exception as error:  # noqa: BLE001 (any download failure gets the same message)
             stop_with(f"Couldn't download the data. Try again in a minute. ({error})")
 
         # Tickers Yahoo didn't recognize come back empty. Drop them and say so.
-        missing = [t for t in weights.index if returns[t].isna().all()]
+        missing = [t for t in shares.index if returns[t].isna().all()]
         if missing:
             notes.append(f"No price data for {', '.join(missing)}. Check the symbols; "
                          "they were left out.")
-            weights = weights.drop(missing)
-            if len(weights) < 2:
+            shares = shares.drop(missing)
+            if len(shares) < 2:
                 stop_with("Fewer than 2 stocks have price data.")
         etf_list = [e for e in etf_list if not returns[e].isna().all()]
         if returns["SPY"].isna().all() or not etf_list:
             stop_with("Couldn't get ETF prices. Try again in a minute.")
 
+        # Invested capital = shares × today's price (cash isn't part of it)
+        book = value_holdings(shares, prices)
+        invested = book["value"].sum()
         try:
-            results = pipeline.run_analysis(weights / weights.sum(), returns, factors,
-                                            notional, etf_list)
+            results = pipeline.run_analysis(book["weight"], returns, factors, invested,
+                                            etf_list, hedge_pct)
         except ValueError as error:
             stop_with(str(error))
 
     st.session_state.results = results
+    st.session_state.book = book
     st.session_state.notes = notes
+
+
+def value_holdings(shares, prices):
+    # Each position at the latest close: shares × price, and its share of the total
+    price = prices[shares.index].ffill().iloc[-1]
+    book = pd.DataFrame({"shares": shares, "price": price, "value": shares * price})
+    book["weight"] = book["value"] / book["value"].sum()
+    return book.sort_values("value", ascending=False)
 
 
 # ---------------------------------------------------------------------------
@@ -288,7 +324,7 @@ def overview():
            f"out of {r['n_stocks']} stocks",
            help="How many truly different bets the book holds. All moving as one = 1.")
     ui.kpi(four, "Best hedge", r["best_hedge"],
-           f"short {ui.money(r['short_dollars'])} ({r['hedge_ratio']:.2f}×)",
+           f"short {ui.money(r['short_dollars'])} ({ui.pct(r['hedge_pct'])} hedged)",
            help="The ETF that tracks the book most closely. See the Hedge tab.")
 
     shares = r["factor_shares"]
@@ -563,8 +599,8 @@ def growth(returns):
 
 
 def hedge_page():
-    header("Hedge", "Which ETF tracks your book best, and how much to short to take the "
-                    "market out.")
+    header("Hedge", "Which ETF tracks your book best, and what your hedge does to your "
+                    "risk.")
     r = require_results()
     ranking, best = r["ranking"], r["best_hedge"]
     book, etf_returns = r["portfolio"], r["etf_returns"]
@@ -572,18 +608,27 @@ def hedge_page():
     one, two, three, four = st.columns(4)
     ui.kpi(one, "Best match", best, f"tracks {ui.pct(ranking.loc[best, 'R²'])} of daily moves")
     ui.kpi(two, "Short", ui.money(r["short_dollars"]),
-           f"{r['hedge_ratio']:.2f}× your {ui.money(r['notional'])} book")
+           f"{ui.pct(r['hedge_pct'])} of {ui.money(r['notional'])} invested",
+           help="Your hedge % (set on the Portfolio tab) × invested capital.")
     ui.kpi(three, "Beta to SPY", f"{r['beta_before']:.2f} → {r['beta_after']:.2f}",
-           "before → after the hedge", help="Near 0 after the hedge = market neutral.")
+           "before → after your hedge", help="Near 0 after the hedge = market neutral.")
     ui.kpi(four, "Volatility", f"{ui.pct(r['realized_vol'])} → {ui.pct(r['vol_after'])}",
-           "before → after, per year")
+           "before → after your hedge")
+
+    full = r["hedge_ratio"]
+    ui.callout("sizing",
+               f":material/info: **{ui.pct(r['hedge_pct'])} hedged** = short "
+               f"{ui.money(r['short_dollars'])} of {best}, {ui.pct(r['hedge_pct'])} of your "
+               f"{ui.money(r['notional'])} invested. For reference, the short in {best} that "
+               f"cancels the most risk is **{ui.pct(full)} hedged** "
+               f"({ui.money(full * r['notional'])}). Change your hedge % on the Portfolio tab.")
 
     with ui.card("leaderboard"):
         ui.card_header("Leaderboard", "Which ETF moves most like your book",
                        "R² = correlation². The higher it is, the more of your risk a short "
-                       "in that ETF cancels out. Your volatility after hedging is "
-                       "volatility × √(1 − R²).")
-        text = [f"{row['R²']:.0%}  ·  short {row['hedge ratio']:.2f}×"
+                       "in that ETF can cancel out. \"Full hedge\" is the size that cancels "
+                       "the most, as a % of your invested capital.")
+        text = [f"{row['R²']:.0%}  ·  full hedge {row['hedge ratio']:.0%}"
                 for _, row in ranking.iterrows()]
         show(*charts.highlight_bars(ranking["R²"], best, "ETF", "R²", domain=[0, 1],
                                     text=text))
@@ -612,23 +657,26 @@ def hedge_page():
         show(*charts.lines(rolling.to_frame(f"Correlation with {etf}"), [ui.RED],
                            "Correlation", domain=[min(0, rolling.min()), 1]))
     with right, ui.card("hedged"):
-        hedged = book - h * etf_returns[etf]
+        pct = r["hedge_pct"]
+        hedged = book - pct * etf_returns[etf]
         vol = book.std() * risk.DAYS_PER_YEAR ** 0.5
         vol_after = hedged.std() * risk.DAYS_PER_YEAR ** 0.5
-        ui.card_header("After the hedge", "What's left once you short it",
-                       f"Shorting {ui.money(h * r['notional'])} of {etf} takes volatility "
+        ui.card_header("After the hedge", f"Your book {ui.pct(pct)} hedged with {etf}",
+                       f"Shorting {ui.money(pct * r['notional'])} of {etf} takes volatility "
                        f"from {ui.pct(vol)} to {ui.pct(vol_after)}. What's left is the part "
-                       "of your return the ETF doesn't share.")
-        table = pd.DataFrame({"Unhedged": growth(book), f"Hedged with {etf}": growth(hedged)})
+                       "of your return the hedge doesn't offset.")
+        table = pd.DataFrame({"Unhedged": growth(book),
+                              f"{ui.pct(pct)} hedged with {etf}": growth(hedged)})
         show(*charts.lines(table, [ui.GREY, ui.RED], "Growth of $1", zero=1))
 
     with st.expander("Full hedge table"):
         st.dataframe(ranking, column_config={
             "correlation": st.column_config.NumberColumn(format="%.2f"),
             "R²": st.column_config.NumberColumn(format="percent"),
-            "hedge ratio": st.column_config.NumberColumn(format="%.2f"),
+            "hedge ratio": st.column_config.NumberColumn("full hedge", format="percent"),
             "vol before": st.column_config.NumberColumn(format="percent"),
-            "vol after": st.column_config.NumberColumn(format="percent")})
+            "vol after": st.column_config.NumberColumn("vol after full hedge",
+                                                       format="percent")})
 
 
 # ---------------------------------------------------------------------------

@@ -154,9 +154,10 @@ def card_header(eyebrow, title, note=None):
 
 
 def callout(key, text, risk=False):
-    # Red for "look at this", grey for "good to know"
+    # Red for "look at this", grey for "good to know". Markdown reads $...$ as math,
+    # so dollar signs get escaped.
     with st.container(key=f"callout_{'risk' if risk else 'info'}_{key}"):
-        st.markdown(text)
+        st.markdown(text.replace("$", "\\$"))
 
 
 def kpi(column, label, value, note, help=None):

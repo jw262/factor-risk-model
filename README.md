@@ -6,7 +6,7 @@ Three questions about my semiconductor / AI-infrastructure book:
 2. **Where is my risk coming from, and am I concentrated in one factor?**
 3. **Which ETF tracks my book the best, and how much do I short to go market neutral?**
 
-**Try it:** enter any stocks and weights in the [website](https://riskfactormodel.streamlit.app/). Full proofs of every formula are in [MATH.md](MATH.md).
+**Try it:** enter any stocks and how many shares you own in the [website](https://riskfactormodel.streamlit.app/). Full proofs of every formula are in [MATH.md](MATH.md).
 
 ## Why factor models
 
@@ -56,6 +56,8 @@ All three produce $B$, $F$, $D$, so the same risk code runs on every one of them
 $$h^* = \frac{\text{Cov}(r_p, r_e)}{\text{Var}(r_e)} \qquad \text{Var}(r_p - h^* r_e) = \sigma_p^2 (1 - \rho^2)$$
 
 So the best hedge is simply the ETF with the highest correlation to the book.
+
+**How much to hedge.** Holdings go in as shares, so invested capital is shares × today's price (cash doesn't count). The hedge is sized as a percent of that: 50% hedged on $20,000 invested means shorting $10,000 of the ETF. $h^*$ is still shown as the "full hedge", the size that cancels the most risk.
 
 ## Layout
 
