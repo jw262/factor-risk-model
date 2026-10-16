@@ -47,12 +47,6 @@ All three produce $B$, $F$, $D$, so the same risk code runs on every one of them
 
 **Which one wins?** Each model gets graded on three tests, one point each: highest R² (explains the most of the book's daily moves), predicted volatility closest to what actually happened, and the least correlation left between the stocks' leftovers (a model that missed a factor leaves some behind). Most points wins; a tie goes to the higher R². The statistical model has a home advantage: its factors are built from the book's own stocks.
 
-## What the report shows
-
-![Returns](reports/1_returns.png)
-![Risk](reports/2_risk.png)
-![Hedge](reports/3_hedge.png)
-
 **Return attribution** regresses the whole book on the factors. Because a regression with a constant forces the leftover to average zero, the pieces add up exactly: $\bar r_p = \alpha + \sum_k \beta_k \bar f_k$.
 
 **Risk attribution** uses $\text{Var}(r_p) = b^\top F b + \text{Var}(\varepsilon)$, where each factor's share is $b_k (Fb)_k$. Concentration is measured by the **effective number of bets**, $(\sum \lambda)^2 / \sum \lambda^2$ from the correlation matrix's eigenvalues: 12 independent stocks score 12, everything moving as one scores 1.
