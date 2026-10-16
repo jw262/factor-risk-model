@@ -6,7 +6,7 @@ Three questions about my semiconductor / AI-infrastructure book:
 2. **Where is my risk coming from, and am I concentrated in one factor?**
 3. **Which ETF tracks my book the best, and how much do I short to go market neutral?**
 
-**Try it:** enter any stocks and weights in the web app (see [Website](#website)). Full proofs of every formula are in [MATH.md](MATH.md).
+**Try it:** enter any stocks and weights in the [website](https://riskfactormodel.streamlit.app/). Full proofs of every formula are in [MATH.md](MATH.md).
 
 ## Why factor models
 
